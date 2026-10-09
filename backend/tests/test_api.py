@@ -2,7 +2,7 @@ from tests.conftest import ANALYST, ENGINEER, MANAGER, SUPPORT
 
 
 def _pending_kyc(client):
-    rows = client.get("/api/kyc?status=pending").json()
+    rows = client.get("/api/kyc?status=pending", headers=ANALYST).json()
     return rows[0]
 
 
@@ -43,7 +43,7 @@ def test_reject_without_reason_422(client):
 
 
 def test_approve_terminal_409(client):
-    approved = client.get("/api/kyc?status=approved").json()[0]
+    approved = client.get("/api/kyc?status=approved", headers=ANALYST).json()[0]
     r = client.post(
         f"/api/kyc/{approved['id']}/approve", headers=ANALYST, json={}
     )
@@ -60,6 +60,26 @@ def test_no_header_401(client):
     assert client.get("/api/me").status_code == 401
     row = _pending_kyc(client)
     assert client.post(f"/api/kyc/{row['id']}/claim").status_code == 401
+
+
+def test_protected_reads_require_auth(client):
+    kyc_id = _pending_kyc(client)["id"]
+    for path in (
+        "/api/kyc",
+        "/api/kyc/stats",
+        f"/api/kyc/{kyc_id}",
+        "/api/refunds",
+        "/api/audit",
+        "/api/feature-flags",
+    ):
+        assert client.get(path).status_code == 401, path
+
+
+def test_public_endpoints_no_auth(client):
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/api/users").status_code == 200
+    assert client.get("/api/flags?env=dev").status_code == 200
+    assert client.get("/api/documents/passport_1.svg").status_code == 200
 
 
 def test_users_public(client):
@@ -102,7 +122,7 @@ def test_refund_create_validation(client):
 
 
 def test_refund_approve_roles(client):
-    pending = client.get("/api/refunds?needs_approval=true").json()[0]
+    pending = client.get("/api/refunds?needs_approval=true", headers=MANAGER).json()[0]
     r = client.post(f"/api/refunds/{pending['id']}/approve", headers=SUPPORT)
     assert r.status_code == 403
     r = client.post(f"/api/refunds/{pending['id']}/approve", headers=MANAGER)
@@ -117,16 +137,18 @@ def test_refund_approve_roles(client):
 
 
 def test_refund_needs_approval_filter(client):
-    rows = client.get("/api/refunds?needs_approval=true").json()
+    rows = client.get("/api/refunds?needs_approval=true", headers=SUPPORT).json()
     assert len(rows) >= 4
     assert all(r["status"] == "pending_approval" for r in rows)
     assert all(r["refund_amount"] > 500 for r in rows)
 
 
 def test_refund_date_filter(client):
-    all_rows = client.get("/api/refunds").json()
+    all_rows = client.get("/api/refunds", headers=SUPPORT).json()
     a_date = all_rows[0]["requested_at"][:10]
-    rows = client.get(f"/api/refunds?date_from={a_date}&date_to={a_date}").json()
+    rows = client.get(
+        f"/api/refunds?date_from={a_date}&date_to={a_date}", headers=SUPPORT
+    ).json()
     assert all(r["requested_at"][:10] == a_date for r in rows)
 
 
@@ -197,7 +219,7 @@ def test_runtime_flags_public(client):
 
 
 def test_kyc_stats(client):
-    r = client.get("/api/kyc/stats")
+    r = client.get("/api/kyc/stats", headers=ANALYST)
     assert r.status_code == 200
     s = r.json()
     for key in (
@@ -223,14 +245,60 @@ def test_documents_public(client):
 
 
 def test_kyc_list_filters_and_sort(client):
-    rows = client.get("/api/kyc?status=pending,in_review").json()
+    rows = client.get("/api/kyc?status=pending,in_review", headers=ANALYST).json()
     assert all(r["status"] in ("pending", "in_review") for r in rows)
     dates = [r["submitted_at"] for r in rows]
     assert dates == sorted(dates, reverse=True)
-    rows = client.get("/api/kyc?risk_level=high").json()
+    rows = client.get("/api/kyc?risk_level=high", headers=ANALYST).json()
     assert all(r["risk_level"] == "high" for r in rows)
 
 
 def test_timestamps_z_suffix(client):
     row = _pending_kyc(client)
     assert row["submitted_at"].endswith("Z")
+
+
+def test_date_to_inclusive_end_of_day(client):
+    from datetime import datetime
+
+    from app.db import SessionLocal
+    from app.models import RefundRequest
+
+    db = SessionLocal()
+    row = RefundRequest(
+        customer_name="Late Night",
+        order_id="ORD-2330",
+        original_amount=200.0,
+        refund_amount=50.0,
+        reason="other",
+        status="requested",
+        requested_by="Bob Martinez",
+        requested_at=datetime(2024, 6, 15, 23, 30),
+    )
+    db.add(row)
+    db.commit()
+    rid = row.id
+    db.close()
+
+    rows = client.get(
+        "/api/refunds?date_from=2024-06-15&date_to=2024-06-15",
+        headers=SUPPORT,
+    ).json()
+    assert rid in [r["id"] for r in rows]
+
+
+def test_flag_patch_noop(client):
+    flags = client.get("/api/feature-flags", headers=ENGINEER).json()
+    flag = flags[0]
+    r = client.patch(
+        f"/api/feature-flags/{flag['id']}",
+        headers=ENGINEER,
+        json={"enabled": flag["enabled"], "rollout_percent": flag["rollout_percent"]},
+    )
+    assert r.status_code == 200
+    assert r.json()["updated_at"] == flag["updated_at"]
+    audit = client.get(
+        f"/api/audit?entity_type=feature_flag&entity_id={flag['id']}&user_id=3",
+        headers=ENGINEER,
+    ).json()
+    assert audit == []

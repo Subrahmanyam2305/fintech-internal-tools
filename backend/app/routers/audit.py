@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import require_roles
+from ..auth import current_user
 from ..db import get_db
-from ..models import AuditLog, User
+from ..models import AuditLog
 from ..schemas import AuditOut
 
-router = APIRouter(prefix="/api/audit", tags=["audit"])
+router = APIRouter(
+    prefix="/api/audit", tags=["audit"], dependencies=[Depends(current_user)]
+)
 
 
 @router.get("", response_model=list[AuditOut])
@@ -16,7 +18,6 @@ def list_audit(
     entity_id: int | None = None,
     user_id: int | None = None,
     limit: int = 100,
-    user: User = Depends(require_roles("analyst", "support_agent", "engineer", "manager")),
     db: Session = Depends(get_db),
 ):
     q = select(AuditLog).order_by(AuditLog.id.desc()).limit(limit)

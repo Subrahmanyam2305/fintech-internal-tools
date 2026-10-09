@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..audit import utcnow, write_audit
-from ..auth import require_roles
+from ..auth import current_user, require_roles
 from ..db import get_db
 from ..models import FeatureFlag, User
 from ..schemas import FlagOut, FlagPatchBody, FlagRuntimeOut
@@ -31,7 +31,7 @@ def runtime_flags(
 @router.get("/feature-flags", response_model=list[FlagOut])
 def list_flags(
     environment: str | None = None,
-    user: User = Depends(require_roles("analyst", "support_agent", "engineer", "manager")),
+    user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
     q = select(FeatureFlag).order_by(FeatureFlag.key, FeatureFlag.environment)
@@ -53,20 +53,23 @@ def patch_flag(
     if body.rollout_percent is not None and not (0 <= body.rollout_percent <= 100):
         raise HTTPException(status_code=422, detail="rollout_percent must be 0..100")
 
-    now = utcnow()
+    changed = False
     if body.enabled is not None and body.enabled != row.enabled:
         write_audit(
             db, user, "flag.toggle", "feature_flag", row.id,
             [("enabled", row.enabled, body.enabled)],
         )
         row.enabled = body.enabled
+        changed = True
     if body.rollout_percent is not None and body.rollout_percent != row.rollout_percent:
         write_audit(
             db, user, "flag.rollout", "feature_flag", row.id,
             [("rollout_percent", row.rollout_percent, body.rollout_percent)],
         )
         row.rollout_percent = body.rollout_percent
-    row.updated_at = now
+        changed = True
+    if changed:
+        row.updated_at = utcnow()
     db.commit()
     db.refresh(row)
     return row

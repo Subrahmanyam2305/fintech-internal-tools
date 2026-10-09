@@ -1,7 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..audit import utcnow, write_audit
@@ -10,7 +10,9 @@ from ..db import get_db
 from ..models import RefundRequest, User
 from ..schemas import RefundCreateBody, RefundOut, RefundRejectBody
 
-router = APIRouter(prefix="/api/refunds", tags=["refunds"])
+router = APIRouter(
+    prefix="/api/refunds", tags=["refunds"], dependencies=[Depends(current_user)]
+)
 
 APPROVAL_THRESHOLD = 500
 REASONS = {
@@ -51,15 +53,10 @@ def list_refunds(
     elif status:
         q = q.where(RefundRequest.status.in_(status.split(",")))
     if date_from:
-        q = q.where(RefundRequest.requested_at >= date_from.isoformat())
+        q = q.where(func.date(RefundRequest.requested_at) >= date_from.isoformat())
     if date_to:
-        q = q.where(RefundRequest.requested_at < f"{date_to.isoformat()} 23:59:59.999999")
-        # inclusive: compare date portion instead
+        q = q.where(func.date(RefundRequest.requested_at) <= date_to.isoformat())
     rows = db.scalars(q.order_by(RefundRequest.requested_at.desc())).all()
-    if date_to:
-        rows = [r for r in rows if r.requested_at.date() <= date_to]
-    if date_from:
-        rows = [r for r in rows if r.requested_at.date() >= date_from]
     return [_out(r) for r in rows]
 
 

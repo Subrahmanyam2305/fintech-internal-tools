@@ -10,7 +10,9 @@ from ..db import get_db
 from ..models import KycSubmission, User
 from ..schemas import KycActionBody, KycOut, KycRejectBody, KycRequestInfoBody
 
-router = APIRouter(prefix="/api/kyc", tags=["kyc"])
+router = APIRouter(
+    prefix="/api/kyc", tags=["kyc"], dependencies=[Depends(current_user)]
+)
 
 REVIEWABLE = ("pending", "in_review", "needs_more_info")
 REVIEW_ROLES = ("analyst", "manager")
