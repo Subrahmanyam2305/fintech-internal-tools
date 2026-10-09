@@ -134,4 +134,30 @@ Tests run against a temp SQLite database seeded via `seed.seed()`.
 
 ## Screenshots
 
-TODO
+**Login** — Mock sign-in. Pick one of the four seeded users from a dropdown; a short role description appears under it. No passwords: the selected user ID goes in `localStorage` and is sent as `X-User-Id`.
+
+![Login](docs/screenshots/login.png)
+
+**KYC Review queue** — Stat cards at the top: pending, in review, needs more info, average review time, approval rate today. Below them is a submissions table you can filter by status and risk level and sort by submitted date. It shows color-coded status and risk pills and the assigned reviewer.
+
+![KYC queue](docs/screenshots/kyc-queue.png)
+
+**KYC detail** — Customer and review metadata, placeholder document thumbnails (click to preview full size), review notes, and an activity timeline built from the audit log. Analysts and managers get Approve, Reject (reason required), and Request More Info. When an analyst opens a pending item it is assigned to them automatically and moves to `in_review`. Terminal decisions are locked.
+
+![KYC detail](docs/screenshots/kyc-detail.png)
+
+**Refunds dashboard** — All refund requests, with filters for status and requested-date range. Columns: order, amounts, reason, requester and approver. Support agents and managers can create refunds. Any refund over $500 goes to `pending_approval`.
+
+![Refunds](docs/screenshots/refunds.png)
+
+**Refunds › Needs Approval** — The queue of refunds above $500. Only managers see Approve and Reject buttons; everyone else gets a read-only view.
+
+![Needs approval](docs/screenshots/refunds-needs-approval.png)
+
+**Feature Flags** — Flags with environment tabs (all/production/staging/dev). Engineers and managers get toggle switches and rollout-percent sliders; other roles see a read-only view. A live preview shows what `GET /api/flags?env=<env>` returns to services at runtime.
+
+![Feature flags](docs/screenshots/feature-flags.png)
+
+**Audit Log** — Every mutation across all tools: who (name + role), what (action, record, field), when, and the before/after values. Filter by tool and by user; record links go back to the item.
+
+![Audit log](docs/screenshots/audit-log.png)

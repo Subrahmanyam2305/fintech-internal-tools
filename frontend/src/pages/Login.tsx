@@ -31,7 +31,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-muted/40">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-2 flex items-center justify-center gap-2">
             <ShieldCheck className="h-7 w-7 text-primary" />
             <CardTitle className="text-2xl">OpsDash</CardTitle>
           </div>
