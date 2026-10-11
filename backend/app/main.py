@@ -22,7 +22,9 @@ def startup():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    from .auth import mock_auth_enabled
+
+    return {"status": "ok", "mock_auth": mock_auth_enabled()}
 
 
 app.include_router(users.router)

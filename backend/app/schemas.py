@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class ORMModel(BaseModel):
@@ -64,8 +65,12 @@ class RefundOut(ORMModel):
 class RefundCreateBody(BaseModel):
     customer_name: str
     order_id: str
-    original_amount: float
-    refund_amount: float
+    original_amount: Decimal = Field(
+        gt=0, decimal_places=2, allow_inf_nan=False
+    )
+    refund_amount: Decimal = Field(
+        gt=0, decimal_places=2, allow_inf_nan=False
+    )
     reason: str
 
 

@@ -366,10 +366,10 @@ export default function KycDetail() {
         open={dialog === "info"}
         onOpenChange={(o) => !o && setDialog(null)}
         title="Request more information"
-        description="The submission moves to Needs more info until the customer responds."
-        fieldLabel="Message to customer"
+        description="Records a workflow action and moves the submission to Needs more info. Demo only: no message or notification is sent to the customer."
+        fieldLabel="Information requested (recorded, not sent)"
         placeholder="e.g. Please upload a proof of address dated within the last 3 months"
-        confirmLabel="Send request"
+        confirmLabel="Record request"
         pending={pending}
         onConfirm={(text) => action.mutate({ kind: "info", text })}
       />

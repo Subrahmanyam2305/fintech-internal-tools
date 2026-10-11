@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -14,7 +15,7 @@ router = APIRouter(
     prefix="/api/refunds", tags=["refunds"], dependencies=[Depends(current_user)]
 )
 
-APPROVAL_THRESHOLD = 500
+APPROVAL_THRESHOLD = Decimal("500.00")
 REASONS = {
     "damaged_item",
     "not_received",
@@ -35,7 +36,9 @@ def _get_or_404(db: Session, refund_id: int) -> RefundRequest:
 
 def _out(row: RefundRequest) -> RefundOut:
     data = {c.name: getattr(row, c.name) for c in row.__table__.columns}
-    data["requires_manager_approval"] = row.refund_amount > APPROVAL_THRESHOLD
+    data["requires_manager_approval"] = (
+        Decimal(str(row.refund_amount)) > APPROVAL_THRESHOLD
+    )
     return RefundOut(**data)
 
 
@@ -68,10 +71,11 @@ def create_refund(
 ):
     if body.reason not in REASONS:
         raise HTTPException(status_code=422, detail="invalid reason")
-    if body.refund_amount <= 0 or body.refund_amount > body.original_amount:
+    if body.refund_amount > body.original_amount:
         raise HTTPException(
             status_code=422,
-            detail="refund_amount must be > 0 and <= original_amount",
+            detail="refund_amount must not exceed the supplied original_amount "
+            "(not verified against payment records)",
         )
     status = (
         "pending_approval"
@@ -81,8 +85,8 @@ def create_refund(
     row = RefundRequest(
         customer_name=body.customer_name,
         order_id=body.order_id,
-        original_amount=round(body.original_amount, 2),
-        refund_amount=round(body.refund_amount, 2),
+        original_amount=float(body.original_amount),
+        refund_amount=float(body.refund_amount),
         reason=body.reason,
         status=status,
         requested_by=user.name,
@@ -96,7 +100,13 @@ def create_refund(
         "refund.create",
         "refund_request",
         row.id,
-        [("status", None, status)],
+        [
+            ("status", None, status),
+            ("refund_amount", None, body.refund_amount),
+            ("original_amount", None, body.original_amount),
+            ("order_id", None, body.order_id),
+            ("reason", None, body.reason),
+        ],
     )
     db.commit()
     db.refresh(row)
@@ -110,7 +120,7 @@ def approve_refund(
     db: Session = Depends(get_db),
 ):
     row = _get_or_404(db, refund_id)
-    if row.status not in APPROVABLE:
+    if row.status != "pending_approval":
         raise HTTPException(
             status_code=409, detail=f"Cannot approve refund in status {row.status}"
         )
@@ -157,7 +167,10 @@ def process_refund(
     db: Session = Depends(get_db),
 ):
     row = _get_or_404(db, refund_id)
-    if row.status != "approved":
+    if row.status != "approved" and not (
+        row.status == "requested"
+        and Decimal(str(row.refund_amount)) <= APPROVAL_THRESHOLD
+    ):
         raise HTTPException(
             status_code=409, detail=f"Cannot process refund in status {row.status}"
         )

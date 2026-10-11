@@ -1,3 +1,5 @@
+import os
+
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
@@ -12,10 +14,22 @@ MOCK_USERS = [
 ]
 
 
+MOCK_AUTH_DISABLED_DETAIL = (
+    "Mock authentication is disabled. Set OPSDASH_MOCK_AUTH=1 to run the demo "
+    "with simulated identities. No production authentication is implemented."
+)
+
+
+def mock_auth_enabled() -> bool:
+    return os.environ.get("OPSDASH_MOCK_AUTH") == "1"
+
+
 def current_user(
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
     db: Session = Depends(get_db),
 ) -> User:
+    if not mock_auth_enabled():
+        raise HTTPException(status_code=503, detail=MOCK_AUTH_DISABLED_DETAIL)
     if x_user_id is None:
         raise HTTPException(status_code=401, detail="Missing X-User-Id header")
     try:

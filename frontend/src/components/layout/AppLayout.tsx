@@ -1,3 +1,4 @@
+import { DemoBanner } from "@/components/DemoBanner";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   History,
@@ -108,9 +109,12 @@ export default function AppLayout() {
           </Button>
         </div>
       </aside>
-      <main className="ml-60 flex-1 overflow-y-auto p-6">
-        <Outlet />
-      </main>
+      <div className="ml-60 flex min-w-0 flex-1 flex-col">
+        <DemoBanner />
+        <main className="flex-1 overflow-y-auto p-6">
+          <Outlet />
+        </main>
+      </div>
       <Toaster />
     </div>
   );

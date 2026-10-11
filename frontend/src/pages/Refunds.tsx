@@ -71,7 +71,7 @@ const DONE: Record<RefundAction, string> = {
   approve: "approved",
   reject: "rejected",
   process: "moved to processing",
-  complete: "marked completed",
+  complete: "marked completed (simulated — no money moved)",
 };
 
 export default function Refunds() {
@@ -130,7 +130,7 @@ export default function Refunds() {
     <div>
       <PageHeader
         title="Refunds"
-        description={`Track refund requests through approval and payout. Refunds over ${fmtMoney(APPROVAL_THRESHOLD)} require manager approval.`}
+        description={`Track refund requests through approval and a simulated payout (no money moves). Refunds over ${fmtMoney(APPROVAL_THRESHOLD)} require manager approval.`}
         actions={
           can("refund:create") && (
             <Button onClick={() => setCreating(true)}>
@@ -289,6 +289,25 @@ function RefundTable({
 
   function actions(r: RefundRequest) {
     const busy = busyId === r.id;
+    if (r.status === "requested" && !r.requires_manager_approval) {
+      if (!can("refund:process")) {
+        return (
+          <span className="text-xs text-muted-foreground">Support can process</span>
+        );
+      }
+      return (
+        <>
+          {can("refund:approve") && (
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => onAction("reject", r)}>
+              Reject
+            </Button>
+          )}
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => onAction("process", r)}>
+            Start processing
+          </Button>
+        </>
+      );
+    }
     if (r.status === "requested" || r.status === "pending_approval") {
       if (can("refund:approve")) {
         return (
@@ -328,8 +347,10 @@ function RefundTable({
     }
     if (r.status === "processing" && can("refund:process")) {
       return (
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => onAction("complete", r)}>
-          Mark completed
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => onAction("complete", r)}
+          title="Simulated: no money is transferred"
+        >
+          Mark completed (simulated)
         </Button>
       );
     }
@@ -440,10 +461,17 @@ function NewRefundDialog({
 
   const orig = parseFloat(form.original_amount);
   const amt = parseFloat(form.refund_amount);
-  const amountError =
-    amt > 0 && orig > 0 && amt > orig
-      ? "Refund can't exceed the original amount."
+  const usd = /^\d+(\.\d{1,2})?$/;
+  const formatError =
+    (form.original_amount && !usd.test(form.original_amount.trim())) ||
+    (form.refund_amount && !usd.test(form.refund_amount.trim()))
+      ? "Amounts must be positive USD values with at most 2 decimal places."
       : null;
+  const amountError =
+    formatError ??
+    (amt > 0 && orig > 0 && amt > orig
+      ? "Refund can't exceed the original amount entered."
+      : null);
   const valid =
     form.customer_name.trim() &&
     form.order_id.trim() &&
@@ -511,7 +539,7 @@ function NewRefundDialog({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="rf-orig">Original amount ($)</Label>
+            <Label htmlFor="rf-orig">Original amount ($, as entered — not verified)</Label>
             <Input
               id="rf-orig"
               type="number"
