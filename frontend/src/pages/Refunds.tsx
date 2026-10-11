@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Lock, Plus, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Lock, Plus, RotateCw, ShieldAlert } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
 import { ActionDialog } from "@/components/ActionDialog";
@@ -230,12 +230,15 @@ export default function Refunds() {
             </span>
           )}
           <span className="ml-auto self-center text-sm text-muted-foreground">
-            {active.data ? `${active.data.length} refunds` : ""}
+            {active.data && !active.isError ? `${active.data.length} refunds` : ""}
           </span>
         </div>
         <RefundTable
-          rows={active.data}
+          rows={active.isError ? undefined : active.data}
           loading={active.isLoading}
+          error={active.isError ? active.error : null}
+          retrying={active.isFetching}
+          onRetry={() => void active.refetch()}
           busyId={act.isPending ? act.variables?.id : undefined}
           onAction={(kind, r) =>
             kind === "reject" ? setRejecting(r) : act.mutate({ kind, id: r.id })
@@ -278,9 +281,15 @@ function RefundTable({
   busyId,
   onAction,
   emptyText,
+  error,
+  retrying,
+  onRetry,
 }: {
   rows?: RefundRequest[];
   loading: boolean;
+  error?: Error | null;
+  retrying?: boolean;
+  onRetry?: () => void;
   busyId?: number;
   onAction: (kind: RefundAction, r: RefundRequest) => void;
   emptyText: string;
@@ -390,6 +399,26 @@ function RefundTable({
               </TableCell>
             </TableRow>
           ))}
+        {error && (
+          <TableRow>
+            <TableCell colSpan={8} className="py-10">
+              <div role="alert" className="flex flex-col items-center gap-3 text-center">
+                <AlertTriangle className="size-6 text-destructive" />
+                <div>
+                  <p className="font-medium text-destructive">Couldn't load refunds</p>
+                  <p className="text-sm text-muted-foreground">
+                    The request failed, so this list is unavailable — not empty.
+                    {error.message ? ` (${error.message})` : ""}
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={onRetry} disabled={retrying}>
+                  <RotateCw className={retrying ? "animate-spin" : undefined} />
+                  {retrying ? "Retrying…" : "Retry"}
+                </Button>
+              </div>
+            </TableCell>
+          </TableRow>
+        )}
         {rows?.length === 0 && (
           <TableRow>
             <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">

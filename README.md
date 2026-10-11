@@ -56,8 +56,8 @@ The dev server proxies `/api` to `http://localhost:8000`.
 ### 3. Checks
 
 ```bash
-cd backend && .venv/bin/pytest -q          # API, refund-rule and auth-gate tests
-cd frontend && npm run build && npm run lint
+(cd backend && .venv/bin/pytest -q)          # API, refund-rule and auth-gate tests
+(cd frontend && npm run build && npm run lint)
 ```
 
 The tests run against a temporary SQLite DB seeded with `seed.seed()`, with
