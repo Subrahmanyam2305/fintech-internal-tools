@@ -82,9 +82,9 @@ The tests run against a temporary SQLite DB seeded with `seed.seed()`, with
   - Managers can reject `requested` or `pending_approval` refunds. Invalid or
     repeated transitions return 409, leave the state unchanged and write no
     audit rows.
-- USD validation on refund creation. Amounts must be finite, > 0, and have at
-  most 2 decimal places. Sub-cent values such as `0.001` are rejected (422),
-  not rounded. The refund cannot exceed the `original_amount` supplied in the
+- USD validation on refund creation. Amounts must be finite, > 0, have at
+  most 2 decimal places, and be capped at max $1,000,000.00 per amount.
+  Sub-cent values such as `0.001` are rejected (422), not rounded. The refund cannot exceed the `original_amount` supplied in the
   same request.
 - Feature flags: toggle and rollout % (0–100) per environment.
   `GET /api/flags?env=` returns only enabled flags.

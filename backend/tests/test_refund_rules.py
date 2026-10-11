@@ -144,20 +144,22 @@ def test_create_validation_422(client, payload):
     assert r.status_code == 422, (payload, r.text)
 
 
-@pytest.mark.skip(
-    reason="Starlette raises ValueError serializing the 422 payload that echoes "
-    "the NaN input back; raw-NaN requests can't round-trip through TestClient"
-)
-def test_create_nan_rejected(client):
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_create_non_finite_rejected(client, token):
+    count_before = len(client.get("/api/refunds", headers=SUPPORT).json())
     r = client.post(
         "/api/refunds",
         content=(
             '{"customer_name":"NaN","order_id":"ORD-NAN",'
-            '"original_amount":1000,"refund_amount":NaN,"reason":"other"}'
+            f'"original_amount":1000,"refund_amount":{token},"reason":"other"}}'
         ),
         headers={"X-User-Id": "2", "Content-Type": "application/json"},
     )
     assert r.status_code == 422
+    body = r.json()
+    assert isinstance(body["detail"], list)
+    count_after = len(client.get("/api/refunds", headers=SUPPORT).json())
+    assert count_after == count_before
 
 
 def test_create_audit_fields(client):
@@ -169,6 +171,40 @@ def test_create_audit_fields(client):
     fields = {a["field"] for a in audit if a["action"] == "refund.create"}
     assert {"status", "refund_amount", "original_amount", "order_id", "reason"} <= fields
     assert all(a["previous_value"] is None for a in audit)
+
+
+def test_seed_respects_approval_rule(client):
+    rows = client.get("/api/refunds", headers=MANAGER).json()
+    assert len(rows) == 15
+    for row in rows:
+        if row["refund_amount"] <= 500:
+            assert row["approved_by"] is None
+            assert row["status"] not in ("approved", "pending_approval")
+        if row["status"] == "approved":
+            assert row["refund_amount"] > 500
+
+
+def test_amount_cap(client):
+    count_before = len(client.get("/api/refunds", headers=SUPPORT).json())
+
+    r = _create(client, 1000000.00, original_amount=1000000.00)
+    assert r.status_code == 201, r.text
+
+    r = _create(client, 100.0, original_amount=1000000.01)
+    assert r.status_code == 422
+
+    r = client.post(
+        "/api/refunds",
+        content=(
+            '{"customer_name":"Huge","order_id":"ORD-HUGE",'
+            '"original_amount":1e309,"refund_amount":1e309,"reason":"other"}'
+        ),
+        headers={"X-User-Id": "2", "Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+
+    count_after = len(client.get("/api/refunds", headers=SUPPORT).json())
+    assert count_after == count_before + 1
 
 
 def test_mock_auth_gate(client, monkeypatch):
