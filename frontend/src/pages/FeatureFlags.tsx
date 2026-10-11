@@ -103,7 +103,7 @@ export default function FeatureFlags() {
     <div>
       <PageHeader
         title="Feature Flags"
-        description="Toggle features and control rollout per environment. Changes take effect on the runtime API immediately."
+        description="Toggle flags and set rollout percentages per environment. Changes are returned by the runtime API immediately. Rollout % is stored configuration only; this demo has no user-targeting or flag-evaluation engine."
       />
 
       {!editable && (

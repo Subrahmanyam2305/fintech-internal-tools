@@ -1,3 +1,4 @@
+import { DemoBanner } from "@/components/DemoBanner";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
@@ -28,14 +29,16 @@ export default function Login() {
   const user = users.find((u) => String(u.id) === selected);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40">
+    <div className="flex min-h-screen flex-col bg-muted/40">
+      <DemoBanner />
+      <div className="flex flex-1 items-center justify-center">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
           <div className="mb-2 flex items-center justify-center gap-2">
             <ShieldCheck className="h-7 w-7 text-primary" />
             <CardTitle className="text-2xl">OpsDash</CardTitle>
           </div>
-          <CardDescription>Internal tools — mock sign-in</CardDescription>
+          <CardDescription>Internal tools — simulated sign-in (no real authentication)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Select value={selected} onValueChange={setSelected}>
@@ -66,6 +69,7 @@ export default function Login() {
           </Button>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

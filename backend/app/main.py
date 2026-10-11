@@ -1,5 +1,10 @@
-from fastapi import FastAPI
+import math
+
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .db import Base, engine
 from .routers import audit, documents, flags, kyc, refunds, users
@@ -20,9 +25,29 @@ def startup():
     Base.metadata.create_all(engine)
 
 
+def _json_safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": _json_safe(jsonable_encoder(exc.errors()))},
+    )
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    from .auth import mock_auth_enabled
+
+    return {"status": "ok", "mock_auth": mock_auth_enabled()}
 
 
 app.include_router(users.router)

@@ -109,12 +109,14 @@ def seed(db_path: str | None = None):
         r.reviewed_at = now - timedelta(hours=rng.randint(1, 3))
 
     # --- Refunds ---
-    # >=4 pending_approval (>500), requested <=500, approved (some >500 by Diana), processing, completed, rejected
+    # >=4 pending_approval (>500), requested <=500, approved (all >500),
+    # processing, completed, rejected. Approved rows are >500 and low-value
+    # rows never carry an approver (matches the $500 approval rule).
     refund_specs = (
         [("pending_approval", 650.0), ("pending_approval", 999.0),
          ("pending_approval", 720.5), ("pending_approval", 540.0)]
         + [("requested", 120.0), ("requested", 85.0), ("requested", 450.0)]
-        + [("approved", 780.0), ("approved", 230.0), ("approved", 610.0)]
+        + [("approved", 780.0), ("approved", 860.0), ("approved", 610.0)]
         + [("processing", 150.0), ("processing", 300.0)]
         + [("completed", 199.0), ("completed", 75.0)]
         + [("rejected", 400.0)]
@@ -129,11 +131,8 @@ def seed(db_path: str | None = None):
         approved_by = None
         completed_at = None
         rejection_reason = None
-        if status in ("approved", "processing", "completed"):
-            approved_by = "Diana Patel" if amount > 500 else rng.choice(
-                ["Diana Patel", "Bob Martinez"]
-            )
-            approved_by = "Diana Patel"  # keep it simple: all approved by manager
+        if status in ("approved", "processing", "completed") and amount > 500:
+            approved_by = "Diana Patel"
         if status == "completed":
             completed_at = requested_at + timedelta(hours=rng.randint(6, 48))
         if status == "rejected":

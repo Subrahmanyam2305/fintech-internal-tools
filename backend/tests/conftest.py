@@ -12,6 +12,7 @@ sys.path.insert(0, str(BACKEND))
 def client(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("OPSDASH_DB_PATH", str(db_path))
+    monkeypatch.setenv("OPSDASH_MOCK_AUTH", "1")
     # reimport modules bound to env at import time
     for mod in list(sys.modules):
         if mod == "app" or mod.startswith("app.") or mod == "seed":

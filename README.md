@@ -1,68 +1,151 @@
 # OpsDash
 
-Internal tools platform for a fintech operations team. OpsDash bundles four
-ops workflows behind a mock sign-in:
+> **Demo environment — synthetic data, simulated identity, no real payments.**
+> OpsDash is a time-boxed prototype. It is not production-ready and must not be
+> pointed at real customer data or payment systems.
 
-- **KYC Review** — a review queue for customer identity submissions with
-  claiming, approve/reject/request-info decisions and per-submission documents.
-- **Refunds** — refund request intake and a two-stage payout pipeline with
-  manager approval for amounts over $500.
-- **Feature Flags** — a runtime flag endpoint plus an admin console for
-  toggling flags and rollout percentages per environment.
-- **Audit Log** — an append-only record of every mutation, one row per
+OpsDash is an internal ops prototype for a fintech team. It has three tools
+and a shared audit view, behind a simulated (mock) sign-in:
+
+- **KYC Review**: a review queue for synthetic identity submissions. Analysts
+  can claim a submission and approve it, reject it, or request more info.
+- **Refunds**: refund intake, a manager-approval gate for amounts over $500,
+  and a simulated processing → completed lifecycle.
+- **Feature Flags**: an admin console for flag state and rollout percentages
+  per environment, plus a public runtime read endpoint.
+- **Audit Log**: application-written records of each mutation, one row per
   changed field.
 
-## Running
+## Running the demo
 
-### Backend (Python 3.10+, FastAPI + SQLite)
+### 1. Backend (Python 3.10+, FastAPI + SQLite)
 
 ```bash
 cd backend
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python seed.py            # drops & recreates tables, loads demo data
-.venv/bin/uvicorn app.main:app --reload --port 8000
+.venv/bin/python seed.py      # FIRST RUN / RESET ONLY: see warning below
+OPSDASH_MOCK_AUTH=1 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-The database file defaults to `backend/opsdash.db`; override with the
-`OPSDASH_DB_PATH` environment variable.
+`OPSDASH_MOCK_AUTH=1` is required. It explicitly opts in to simulated
+identities (the `X-User-Id` header). If it is not set, the API **fails closed**:
+every identity-dependent endpoint and `GET /api/users` return
+`503` with a configuration error. There is no other authentication mode, and
+OpsDash does not implement production authentication.
+`GET /api/health` reports `"mock_auth": true|false`.
 
-### Frontend (Node 20/22, Vite + React + Tailwind + shadcn/ui)
+The database file is `backend/opsdash.db` by default. Override it with
+`OPSDASH_DB_PATH`.
+
+**Seed/reset is destructive.** `seed.py` drops and recreates all tables, then
+loads deterministic synthetic data (4 users, 20 KYC submissions, 15 refunds,
+10 flags). That deletes every change and audit row. Run it once to create the
+demo database, or on purpose to reset it. It is not a normal startup step.
+
+### 2. Frontend (Node 20/22, Vite + React + Tailwind + shadcn/ui)
 
 ```bash
 cd frontend
 npm install
-npm run dev                         # http://localhost:5173
+npm run dev                   # http://localhost:5173
 ```
 
-The dev server proxies `/api` to `http://localhost:8000`, so all API calls are
-relative and the seeded document URLs (`/api/documents/*.svg`) work as-is.
+The dev server proxies `/api` to `http://localhost:8000`.
+
+### 3. Checks
+
+```bash
+(cd backend && .venv/bin/pytest -q)          # API, refund-rule and auth-gate tests
+(cd frontend && npm run build && npm run lint)
+```
+
+The tests run against a temporary SQLite DB seeded with `seed.seed()`, with
+`OPSDASH_MOCK_AUTH=1` set by `tests/conftest.py`.
+
+## What is implemented, simulated, and missing
+
+### Implemented (enforced by the API, covered by tests)
+
+- Role checks on every mutation (table below). The UI hides actions too, but
+  the API is the enforcement point.
+- KYC state machine: pending → in_review (auto-claim when an analyst opens
+  the item) → approved / rejected (reason required) / needs_more_info.
+  Terminal states return 409.
+- Refund state machine:
+  - `refund_amount <= $500.00`: created as `requested`. A support agent or
+    manager can move it `requested → processing → completed`, with no manager
+    approval and no `approved_by`.
+  - `refund_amount > $500.00`: created as `pending_approval`. It cannot be
+    processed until a **manager** approves it (`approved → processing →
+    completed`). Support gets 403 on approve/reject.
+  - Managers can reject `requested` or `pending_approval` refunds. Invalid or
+    repeated transitions return 409, leave the state unchanged and write no
+    audit rows.
+- USD validation on refund creation. Amounts must be finite, > 0, have at
+  most 2 decimal places, and be capped at max $1,000,000.00 per amount.
+  Sub-cent values such as `0.001` are rejected (422), not rounded. The refund cannot exceed the `original_amount` supplied in the
+  same request.
+- Feature flags: toggle and rollout % (0–100) per environment.
+  `GET /api/flags?env=` returns only enabled flags.
+- Audit rows are written by `app/audit.py::write_audit` in the same DB
+  transaction as the change they describe. Each row has actor (id, name,
+  role), action, entity, field, previous value, new value and a UTC
+  timestamp. No-op changes write nothing. Refund creation records the
+  amount, original amount, order ID and reason.
+
+### Simulated (looks real in the UI, but is not)
+
+- **Identity**: the user picker sets `X-User-Id`, and anyone can claim any
+  role. Only enabled with `OPSDASH_MOCK_AUTH=1`.
+- **Refund payout**: "processing" and "completed" are status changes only.
+  No money moves and no payment provider is called.
+- **Original amount**: whatever the requester typed. It is not checked
+  against any order or payment record.
+- **KYC "Request more info"**: records a workflow action and changes status.
+  No email or notification is sent.
+- **KYC documents**: generated SVG placeholders, not real uploads.
+- **Rollout %**: stored configuration returned by the runtime endpoint.
+  OpsDash has no user-targeting or flag-evaluation engine.
+- **Data**: all seeded people, emails, orders and amounts are synthetic.
+
+### Production gaps (not built)
+
+- Real authentication (SSO/OIDC), sessions, and server-side role assignment.
+- Audit integrity. Audit rows are ordinary SQLite rows: the API has no
+  endpoint to edit them, but anyone with DB file access can. There is no
+  hashing, signing or external log shipping, so the log is not tamper-proof.
+- Money stored as SQLite `REAL` (validated as 2-decimal `Decimal` at the
+  API edge). A production system would use integer cents or `NUMERIC`.
+- No idempotency keys, concurrency control (row locking or optimistic
+  versions), migrations, rate limiting, pagination, PII handling or
+  retention policy.
+- No integrations: payment processor, KYC vendor, notifications, order system.
 
 ## Architecture
 
 ```
 backend/
   app/
-    main.py         FastAPI app, CORS, create_all on startup
+    main.py         FastAPI app, CORS, create_all on startup, /api/health
     db.py           engine/session, OPSDASH_DB_PATH
     models.py       users, kyc_submissions, refund_requests, feature_flags, audit_log
-    schemas.py      pydantic response/request models (ISO-8601 UTC "Z" timestamps)
-    auth.py         X-User-Id dependency + require_roles
+    schemas.py      pydantic request/response models (ISO-8601 UTC "Z" timestamps)
+    auth.py         OPSDASH_MOCK_AUTH gate, X-User-Id dependency, require_roles
     audit.py        write_audit(): one audit row per changed field
     routers/        users, kyc, refunds, flags, audit, documents
-  seed.py           deterministic demo data (random.Random(42))
-  tests/            pytest + TestClient against a tmp DB
+  seed.py           destructive reset + deterministic synthetic data
+  tests/            pytest + TestClient against a temp DB
 frontend/
-  src/lib/api.ts    typed fetch wrapper (adds X-User-Id, throws ApiError)
+  src/lib/          api.ts (typed fetch, adds X-User-Id), format.ts
   src/types.ts      TS types mirroring backend schemas
   src/auth/         AuthContext (localStorage opsdash.userId) + permission map
-  src/pages/        Login + placeholder KYC/Refunds/Flags/Audit pages
-  src/components/   layout/AppLayout (sidebar) + ui/ (shadcn)
+  src/pages/        Login, KycQueue, KycDetail, Refunds, FeatureFlags, AuditLog
+  src/components/   layout/AppLayout (sidebar + demo banner), shared
+                    StatusBadge/PageHeader/ActionDialog/AuditTrail, ui/ (shadcn)
 ```
 
-### Auth
-
-Mock auth: every request sends `X-User-Id: <id>` for one of four seeded users.
+### Users and permissions (simulated)
 
 | User          | Role           |
 | ------------- | -------------- |
@@ -71,36 +154,25 @@ Mock auth: every request sends `X-User-Id: <id>` for one of four seeded users.
 | Charlie Kim   | engineer       |
 | Diana Patel   | manager        |
 
-Public endpoints (no header): `GET /api/health`, `GET /api/users`,
-`GET /api/flags`, `GET /api/documents/*`. Everything else requires
-`X-User-Id`; missing/unknown → 401.
+| Capability                         | Roles                  |
+| ---------------------------------- | ---------------------- |
+| Review KYC (approve/reject/info)   | analyst, manager       |
+| Claim KYC (pending → in_review)    | analyst (others: no-op) |
+| Create refund                      | support_agent, manager |
+| Approve (> $500) / reject refund   | manager                |
+| Process/complete refund            | support_agent, manager |
+| Edit feature flags                 | engineer, manager      |
 
-### Permissions
-
-| Capability                    | Roles                  |
-| ----------------------------- | ---------------------- |
-| Review KYC (approve/reject…)  | analyst, manager       |
-| Claim KYC (pending→in_review) | any analyst; others no-op |
-| Create refund                 | support_agent, manager |
-| Approve/reject refund         | manager                |
-| Process/complete refund       | support_agent, manager |
-| Edit feature flags            | engineer, manager      |
-
-A refund with `refund_amount > 500` (`APPROVAL_THRESHOLD`) is created in
-`pending_approval` and requires manager approval.
-
-### Audit log
-
-Mutations write rows to `audit_log` in the same transaction — one row per
-changed field (`field`, `previous_value`, `new_value`), never for no-ops.
-Query with `GET /api/audit?entity_type=&entity_id=&user_id=&limit=100`
-(newest first).
+Public endpoints (no header needed): `GET /api/health`, `GET /api/flags`,
+`GET /api/documents/*`. `GET /api/users` needs no header but returns 503 when
+mock auth is disabled. Every other endpoint needs `X-User-Id`: missing or
+unknown → 401, wrong role → 403.
 
 ### API endpoints
 
 ```
 GET    /api/health
-GET    /api/users                       (public)
+GET    /api/users
 GET    /api/me
 GET    /api/kyc?status=&risk_level=&sort=
 GET    /api/kyc/stats
@@ -116,21 +188,9 @@ GET    /api/audit?entity_type=&entity_id=&user_id=&limit=
 GET    /api/documents/{name}.svg        (generated placeholder images)
 ```
 
-Runtime flag lookup (e.g. from another service):
-
 ```bash
 curl 'http://localhost:8000/api/flags?env=production'
-# [{"key":"instant_payouts","name":"Instant Payouts","rollout_percent":50, ...}]
 ```
-
-## Tests
-
-```bash
-cd backend
-.venv/bin/pytest -q
-```
-
-Tests run against a temp SQLite database seeded via `seed.seed()`.
 
 ## Screenshots
 
